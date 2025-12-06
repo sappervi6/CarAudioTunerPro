@@ -1,0 +1,21 @@
+{
+  "name": "AudioTuner Pro",
+  "short_name": "AudioTuner",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/32/32223.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/32/32223.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

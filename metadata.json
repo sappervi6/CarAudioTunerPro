@@ -1,0 +1,7 @@
+{
+  "name": "AudioTuner Pro",
+  "description": "The ultimate car audio tuning companion. Features advanced calculators, AI-powered amplifier recommendations, and professional-grade signal generation tools.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
