@@ -58,7 +58,7 @@ const SystemBuilder: React.FC = () => {
 
   const calculatePort = () => {
     const { boxVolume, tuningFreq, portDiameter, numPorts } = system.enclosure;
-    // Formula: Lv = ( (23562.5 * Dv^2 * Np) / (Vb * Fb^2) ) - (k * Dv)
+    // Formula: Lv = ( (23562.5 * Area * Np) / (Vb * Fb^2) ) - (k * Dv)
     // Using k=0.732 (flush end)
     const r = portDiameter / 2;
     const area = Math.PI * (r * r);
@@ -98,10 +98,6 @@ const SystemBuilder: React.FC = () => {
     if (sub.enabled) {
       const totalSubRMS = sub.rmsPerSub * sub.count;
       totalRMS += totalSubRMS;
-      // Assume wired to final impedance if count > 1? Simplification: Calculate per sub for setting gain per channel usually
-      // But typically subs share a mono block. Let's assume mono block load.
-      // Voltage target based on TOTAL power into FINAL load.
-      // For simplicity in this UI, we treat inputs as "Per Speaker" and give "Per Channel" gain targets.
       const voltageTarget = Math.sqrt(sub.rmsPerSub * sub.impedance).toFixed(1); 
       const theoreticalSPL = (sub.sensitivity + 10 * Math.log10(totalSubRMS)).toFixed(1);
       subStats = { totalSubRMS, voltageTarget, theoreticalSPL };
@@ -196,8 +192,6 @@ const SystemBuilder: React.FC = () => {
     if (!zone.enabled) return null;
     
     // Safely access stats
-    // We know 'key' matches the structure of 'zones' in electricalStats because SystemConfig keys match.
-    // However, TypeScript might need reassurance for the specific keys of electricalStats.zones
     const stats = electricalStats.zones[key as keyof typeof electricalStats.zones] as any; 
     
     return (
@@ -420,6 +414,21 @@ const SystemBuilder: React.FC = () => {
                          <div className="text-3xl font-bold text-white mt-1">{calculatedPortLength}"</div>
                      </div>
                  )}
+
+                 <div className="mt-6 pt-6 border-t border-gray-800">
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-2">Calculation Formula Used</p>
+                    <div className="bg-dark-bg p-3 rounded border border-gray-800 font-mono text-xs text-gray-400 overflow-x-auto">
+                        <p className="mb-2 text-neon-blue">L = [ (23562.5 × Area × N) / (Vb × Fb²) ] - (k × D)</p>
+                        <div className="grid grid-cols-2 gap-2 opacity-75">
+                            <span>Area = π × (D/2)²</span>
+                            <span>N = Number of Ports</span>
+                            <span>Vb = Net Volume (cu. ft)</span>
+                            <span>Fb = Tuning Freq (Hz)</span>
+                            <span>D = Port Diameter (in)</span>
+                            <span>k = 0.732 (End Correction)</span>
+                        </div>
+                    </div>
+                 </div>
              </div>
           </div>
         )}

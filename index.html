@@ -21,14 +21,26 @@
             },
             colors: {
               neon: {
-                blue: '#00f3ff',
-                pink: '#bc13fe',
-                green: '#0aff0a'
+                blue: 'var(--color-primary)',
+                pink: 'var(--color-secondary)',
+                green: 'var(--color-tertiary)'
               },
               dark: {
-                bg: '#0f1115',
-                card: '#161b22',
-                surface: '#21262d'
+                bg: 'var(--color-bg)',
+                card: 'var(--color-card)',
+                surface: 'var(--color-surface)'
+              },
+              // Map standard colors to variables for Day/Night switching
+              white: 'var(--color-text-main)',
+              black: 'var(--color-text-inverse)',
+              gray: {
+                300: 'var(--color-text-muted)',
+                400: 'var(--color-text-dim)',
+                500: 'var(--color-text-dimmer)',
+                600: 'var(--color-border)',
+                700: 'var(--color-border-dim)',
+                800: 'var(--color-border-dark)',
+                900: 'var(--color-surface-dark)',
               }
             }
           }
@@ -36,24 +48,54 @@
       }
     </script>
     <style>
-      body {
-        background-color: #0f1115;
-        color: #ffffff;
-        overscroll-behavior: none; /* Prevents pull-to-refresh on mobile */
+      :root {
+        /* Default Night Mode (Cyberpunk) */
+        --color-bg: #0f1115;
+        --color-card: #161b22;
+        --color-surface: #21262d;
+        --color-surface-dark: #0d1117;
+        
+        --color-primary: #00f3ff;
+        --color-secondary: #bc13fe;
+        --color-tertiary: #0aff0a;
+        
+        --color-text-main: #ffffff;
+        --color-text-inverse: #000000;
+        --color-text-muted: #d1d5db;   /* gray-300 */
+        --color-text-dim: #9ca3af;     /* gray-400 */
+        --color-text-dimmer: #6b7280;  /* gray-500 */
+        
+        --color-border: #4b5563;       /* gray-600 */
+        --color-border-dim: #374151;   /* gray-700 */
+        --color-border-dark: #1f2937;  /* gray-800 */
       }
-      /* Custom scrollbar for webkit */
+
+      body {
+        background-color: var(--color-bg);
+        color: var(--color-text-main);
+        overscroll-behavior: none; 
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      
+      /* Smooth transitions for theme changes */
+      div, button, input, select, header, footer {
+        transition-property: background-color, border-color, color;
+        transition-duration: 0.3s;
+        transition-timing-function: ease;
+      }
+
       ::-webkit-scrollbar {
         width: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #0f1115;
+        background: var(--color-bg);
       }
       ::-webkit-scrollbar-thumb {
-        background: #21262d;
+        background: var(--color-surface);
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #30363d;
+        background: var(--color-border);
       }
       .visualizer-canvas {
         width: 100%;
@@ -61,9 +103,8 @@
         background: rgba(0,0,0,0.2);
         border-radius: 0.5rem;
       }
-      /* Typography for Markdown content */
       .prose h3 {
-        color: #fff;
+        color: var(--color-text-main);
         font-weight: 700;
         margin-top: 1.5em;
         margin-bottom: 0.5em;
@@ -71,13 +112,13 @@
       .prose ul {
         list-style-type: disc;
         padding-left: 1.5em;
-        color: #d1d5db;
+        color: var(--color-text-muted);
       }
       .prose li {
         margin-bottom: 0.25em;
       }
       .prose strong {
-        color: #00f3ff;
+        color: var(--color-primary);
       }
       .prose table {
         width: 100%;
@@ -88,14 +129,14 @@
       .prose th {
         text-align: left;
         padding: 8px;
-        background: #21262d;
-        color: #00f3ff;
-        border: 1px solid #374151;
+        background: var(--color-surface);
+        color: var(--color-primary);
+        border: 1px solid var(--color-border);
       }
       .prose td {
         padding: 8px;
-        border: 1px solid #374151;
-        color: #d1d5db;
+        border: 1px solid var(--color-border);
+        color: var(--color-text-muted);
       }
     </style>
   <script type="importmap">

@@ -1,9 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { SpeakerSpecs, SystemConfig } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Legacy function kept for compatibility if needed, though we primarily use SystemRecommendation now
 export const getAmpRecommendation = async (specs: SpeakerSpecs): Promise<string> => {
   try {
     const prompt = `
@@ -11,7 +10,7 @@ export const getAmpRecommendation = async (specs: SpeakerSpecs): Promise<string>
       Speaker Details: Type: ${specs.type}, Size: ${specs.size}, RMS: ${specs.rmsPower}W, Impedance: ${specs.impedance}Ω, Voice Coils: ${specs.voiceCoils}.
     `;
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: { thinkingConfig: { thinkingBudget: 0 } }
     });
@@ -50,7 +49,7 @@ export const getSystemRecommendation = async (system: SystemConfig): Promise<str
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         thinkingConfig: { thinkingBudget: 0 }
@@ -61,5 +60,59 @@ export const getSystemRecommendation = async (system: SystemConfig): Promise<str
   } catch (error) {
     console.error("Gemini API Error:", error);
     return "Error generating system architecture. Please check API Key.";
+  }
+};
+
+export const getVehicleModels = async (year: string, make: string): Promise<string[]> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `List only the popular vehicle models for the year ${year} and make ${make}. Return ONLY a JSON array of strings.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      }
+    });
+    const models = JSON.parse(response.text || "[]");
+    return models;
+  } catch (error) {
+    console.error("Error fetching models:", error);
+    return [];
+  }
+};
+
+export const getVehicleSpecificRecommendations = async (year: string, make: string, model: string, budget: string): Promise<string> => {
+  try {
+    const prompt = `
+      Perform a deep dive research into the car audio configuration for a ${year} ${make} ${model}.
+      
+      BUDGET TIER: ${budget}
+      
+      TASKS:
+      1. Identify factory speaker locations and sizes for this specific vehicle.
+      2. Recommend a complete audio upgrade path including specific component brands and models that fit this budget.
+      3. Identify potential installation hurdles (e.g. factory amplifier bypass, specialized speaker adapters, active noise cancellation interference).
+      4. Suggest a specific Head Unit or DSP integration strategy for this dash layout.
+
+      FORMAT:
+      Use professional Markdown. Include a section for "Fitment Specs", "Recommended Gear", and "Installation Pro-Tips".
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    });
+
+    return response.text || "Could not generate vehicle recommendations.";
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "Error: Unable to reach the AI Architect. Please verify your connection.";
   }
 };

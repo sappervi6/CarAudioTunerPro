@@ -7,6 +7,11 @@ let analyserNode: AnalyserNode | null = null;
 let frontGain: GainNode | null = null;
 let rearGain: GainNode | null = null;
 
+// EQ Nodes
+let eqInputNode: GainNode | null = null;
+let eqOutputNode: GainNode | null = null;
+let eqFilters: BiquadFilterNode[] = [];
+
 export const initAudio = () => {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -18,15 +23,39 @@ export const initAudio = () => {
     pannerNode = audioCtx.createStereoPanner();
     analyserNode = audioCtx.createAnalyser();
     
+    // EQ Nodes
+    eqInputNode = audioCtx.createGain();
+    eqOutputNode = audioCtx.createGain();
+    
     analyserNode.fftSize = 2048;
     
-    // Routing: 
-    // Source -> Panner -> MasterGain -> [FrontGain, RearGain] -> Analyser -> Destination
-    // Note: Since standard Web Audio output is 2-channel, Front and Rear gains 
-    // simply act as attenuators to simulate the level change before summing to destination
-    // or to specific channel mergers if we had multi-channel output.
-    // For this app, they are parallel paths to the analyser/destination.
-
+    // -- Routing Chain --
+    // Source -> eqInputNode -> [Filter Chain] -> eqOutputNode -> Panner -> Master -> [Front/Rear] -> Analyser -> Dest
+    
+    // Create 16 Bands
+    // ISO Standard 1/3 Octave roughly: 20, 30, 50, 80, 125, 200, 315, 500, 800, 1.25k, 2k, 3.15k, 5k, 8k, 12.5k, 20k
+    const defaultFreqs = [20, 30, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 12500, 20000];
+    
+    let previousNode: AudioNode = eqInputNode;
+    
+    eqFilters = defaultFreqs.map(freq => {
+        if (!audioCtx) throw new Error("No Audio Context");
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'peaking';
+        filter.frequency.value = freq;
+        filter.Q.value = 1.4; // Default Q roughly 1.4 for 2/3 octave bandwidth
+        filter.gain.value = 0;
+        
+        previousNode.connect(filter);
+        previousNode = filter;
+        return filter;
+    });
+    
+    // Connect last filter to EQ Output
+    previousNode.connect(eqOutputNode);
+    
+    // Connect EQ Output to Panner (Rest of the original chain)
+    eqOutputNode.connect(pannerNode);
     pannerNode.connect(masterGain);
     
     masterGain.connect(frontGain);
@@ -37,7 +66,36 @@ export const initAudio = () => {
     
     analyserNode.connect(audioCtx.destination);
   }
-  return { audioCtx, masterGain, frontGain, rearGain, pannerNode, analyserNode };
+  return { audioCtx, masterGain, frontGain, rearGain, pannerNode, analyserNode, eqFilters, eqInputNode };
+};
+
+export const setEQBand = (index: number, gain: number, freq?: number, q?: number) => {
+    const { eqFilters, audioCtx } = initAudio();
+    if (!eqFilters || !eqFilters[index] || !audioCtx) return;
+    
+    const now = audioCtx.currentTime;
+    const filter = eqFilters[index];
+    
+    filter.gain.setTargetAtTime(gain, now, 0.1);
+    
+    if (freq !== undefined) {
+        filter.frequency.setTargetAtTime(freq, now, 0.1);
+    }
+    
+    if (q !== undefined) {
+        filter.Q.setTargetAtTime(q, now, 0.1);
+    }
+};
+
+export const resetEQ = () => {
+    const { eqFilters, audioCtx } = initAudio();
+    if (!eqFilters || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    
+    eqFilters.forEach(filter => {
+        filter.gain.setTargetAtTime(0, now, 0.1);
+        filter.Q.setTargetAtTime(1.4, now, 0.1);
+    });
 };
 
 export const setFader = (value: number) => {
@@ -47,15 +105,11 @@ export const setFader = (value: number) => {
 
   const now = audioCtx?.currentTime || 0;
   
-  // Equal power crossfade logic or linear
-  // Simple Linear for Fader
   if (value > 0) {
-    // Bias to Front
     frontGain.gain.setTargetAtTime(1, now, 0.1);
     rearGain.gain.setTargetAtTime(1 - value, now, 0.1);
   } else {
-    // Bias to Rear
-    frontGain.gain.setTargetAtTime(1 + value, now, 0.1); // value is negative
+    frontGain.gain.setTargetAtTime(1 + value, now, 0.1); 
     rearGain.gain.setTargetAtTime(1, now, 0.1);
   }
 };
@@ -76,8 +130,44 @@ export const stopAllSounds = () => {
   activeOscillators = [];
 };
 
+export const updateFrequency = (frequency: number) => {
+  const now = audioCtx?.currentTime || 0;
+  activeOscillators.forEach(node => {
+    if (node instanceof OscillatorNode) {
+      node.frequency.setTargetAtTime(frequency, now, 0.05);
+    }
+  });
+};
+
+export const decodeAudio = async (arrayBuffer: ArrayBuffer): Promise<AudioBuffer> => {
+    const { audioCtx } = initAudio();
+    if (!audioCtx) throw new Error("Audio Context not initialized");
+    return await audioCtx.decodeAudioData(arrayBuffer);
+};
+
+export const playBuffer = (buffer: AudioBuffer, loop: boolean = false) => {
+  const { audioCtx, eqInputNode } = initAudio();
+  if (!audioCtx || !eqInputNode) return;
+
+  // Resume context if suspended
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
+  stopAllSounds();
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = loop;
+  source.connect(eqInputNode);
+  source.start(0);
+  activeOscillators.push(source);
+  
+  return source;
+};
+
 const createPinkNoise = (ctx: AudioContext): AudioBuffer => {
-  const bufferSize = ctx.sampleRate * 2; // 2 seconds buffer, looped
+  const bufferSize = ctx.sampleRate * 2; 
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const output = buffer.getChannelData(0);
   let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
@@ -114,10 +204,9 @@ export const playTone = (
   pan: number = 0,
   fader: number = 0
 ) => {
-  const { audioCtx, pannerNode } = initAudio();
-  if (!audioCtx || !pannerNode) return;
+  const { audioCtx, pannerNode, eqInputNode } = initAudio();
+  if (!audioCtx || !pannerNode || !eqInputNode) return;
 
-  // Resume context if suspended (browser policy)
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
@@ -127,13 +216,14 @@ export const playTone = (
   setFader(fader);
 
   const now = audioCtx.currentTime;
+  const destination = eqInputNode;
 
   if (type === 'white_noise' || type === 'pink_noise') {
     const buffer = type === 'pink_noise' ? createPinkNoise(audioCtx) : createWhiteNoise(audioCtx);
     const source = audioCtx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
-    source.connect(pannerNode);
+    source.connect(destination);
     source.start(now);
     
     if (duration > 0) {
@@ -147,13 +237,12 @@ export const playTone = (
     
     if (type === 'sweep') {
       osc.frequency.setValueAtTime(10, now);
-      // Exponential ramp is better for audio perception
       osc.frequency.exponentialRampToValueAtTime(20000, now + duration);
     } else {
       osc.frequency.setValueAtTime(frequency, now);
     }
 
-    osc.connect(pannerNode);
+    osc.connect(destination);
     osc.start(now);
     if (duration > 0) {
         osc.stop(now + duration);

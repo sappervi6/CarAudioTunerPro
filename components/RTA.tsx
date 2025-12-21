@@ -5,6 +5,7 @@ type WeightingType = 'A' | 'B' | 'C' | 'Z';
 const RTA: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const [weighting, setWeighting] = useState<WeightingType>('Z');
+  const [peakHold, setPeakHold] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -12,6 +13,7 @@ const RTA: React.FC = () => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const peakDataRef = useRef<Float32Array | null>(null);
 
   // Weighting calculations
   const calculateWeighting = (f: number, type: WeightingType): number => {
@@ -76,6 +78,9 @@ const RTA: React.FC = () => {
       analyser.smoothingTimeConstant = 0.85;
       analyserRef.current = analyser;
 
+      // Initialize peak buffer
+      peakDataRef.current = new Float32Array(analyser.frequencyBinCount).fill(-200);
+
       const source = audioCtx.createMediaStreamSource(stream);
       source.connect(analyser);
       sourceRef.current = source;
@@ -110,6 +115,17 @@ const RTA: React.FC = () => {
     setIsListening(false);
   };
 
+  const togglePeakHold = () => {
+    setPeakHold(prev => {
+      const newValue = !prev;
+      // If turning off, reset peaks to low value
+      if (!newValue && peakDataRef.current) {
+        peakDataRef.current.fill(-200);
+      }
+      return newValue;
+    });
+  };
+
   const draw = () => {
     if (!canvasRef.current || !analyserRef.current || !audioContextRef.current) return;
 
@@ -120,6 +136,17 @@ const RTA: React.FC = () => {
     const bufferLength = analyserRef.current.frequencyBinCount;
     const dataArray = new Float32Array(bufferLength);
     analyserRef.current.getFloatFrequencyData(dataArray);
+
+    // Update Peak Data if enabled
+    if (peakDataRef.current) {
+        for (let i = 0; i < bufferLength; i++) {
+           if (peakHold) {
+               if (dataArray[i] > peakDataRef.current[i]) {
+                   peakDataRef.current[i] = dataArray[i];
+               }
+           }
+        }
+    }
 
     const width = canvas.width;
     const height = canvas.height;
@@ -162,33 +189,51 @@ const RTA: React.FC = () => {
     });
     ctx.stroke();
 
-    // Draw Spectrum
+    // Helper to get Y for frequency
+    const getY = (freq: number, val: number) => {
+        let db = val;
+        db += calculateWeighting(freq, weighting);
+        let y = (db / -100) * (height - 20) + 10;
+        if (y < 0) y = 0;
+        if (y > height) y = height;
+        return y;
+    };
+
+    // --- Draw Peak Line (Background) ---
+    if (peakHold && peakDataRef.current) {
+        ctx.beginPath();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffcc00'; // Yellow for peaks
+        let started = false;
+        
+        for (let x = 0; x < width; x+=2) { // Optimization: step 2
+             const logFreq = (x / scale) + logMin;
+             const freq = Math.pow(10, logFreq);
+             const index = Math.round(freq * bufferLength / (sampleRate / 2));
+             
+             if (index >= 0 && index < bufferLength) {
+                const y = getY(freq, peakDataRef.current[index]);
+                if (!started) { ctx.moveTo(x, y); started = true; }
+                else { ctx.lineTo(x, y); }
+             }
+        }
+        ctx.stroke();
+    }
+
+    // --- Draw Real-Time Spectrum (Foreground) ---
     ctx.beginPath();
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#00f3ff';
-    
     let started = false;
 
     for (let x = 0; x < width; x++) {
-      // Inverse map x to frequency
       const logFreq = (x / scale) + logMin;
       const freq = Math.pow(10, logFreq);
-
-      // Find index in FFT
       const index = Math.round(freq * bufferLength / (sampleRate / 2));
       
       if (index >= 0 && index < bufferLength) {
-        let db = dataArray[index];
+        const y = getY(freq, dataArray[index]);
         
-        // Apply Weighting
-        db += calculateWeighting(freq, weighting);
-
-        // Clamp visual range (-100 to 0)
-        let y = (db / -100) * (height - 20) + 10;
-        
-        if (y < 0) y = 0;
-        if (y > height) y = height;
-
         if (!started) {
           ctx.moveTo(x, y);
           started = true;
@@ -210,22 +255,24 @@ const RTA: React.FC = () => {
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // Stats
+    // Stats text
     ctx.fillStyle = '#fff';
     ctx.font = '12px Inter';
     ctx.fillText(`Weighting: ${weighting}-Weighted`, width - 150, 30);
-    ctx.fillText(`Source: Microphone`, width - 150, 50);
+    ctx.fillText(`Peak Hold: ${peakHold ? 'ON' : 'OFF'}`, width - 150, 50);
 
     animationRef.current = requestAnimationFrame(draw);
   };
 
   useEffect(() => {
     return () => stopAnalyzer();
-  }, []);
+  }, [weighting, peakHold]); 
+  // Dependency on peakHold ensures we don't stale capture, though refs handle data. 
+  // Re-binding draw isn't strictly necessary if using refs, but good for safety.
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
            <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
              <span className="w-3 h-8 bg-gradient-to-b from-neon-blue to-neon-pink rounded-full"></span>
@@ -234,16 +281,31 @@ const RTA: React.FC = () => {
            <p className="text-gray-400 text-sm">Use Pink Noise in "Tone Gen" tab to tune your system.</p>
         </div>
         
-        <div className="flex gap-2">
-          {['A', 'B', 'C', 'Z'].map((w) => (
-             <button
-               key={w}
-               onClick={() => setWeighting(w as WeightingType)}
-               className={`w-10 h-10 rounded font-bold border ${weighting === w ? 'bg-neon-blue text-black border-neon-blue' : 'bg-dark-surface border-gray-700 text-gray-400'}`}
-             >
-               {w}
-             </button>
-          ))}
+        <div className="flex items-center gap-4">
+            {/* Peak Hold Toggle */}
+            <button
+                onClick={togglePeakHold}
+                className={`px-4 py-2 rounded font-bold border transition-colors ${
+                    peakHold 
+                    ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500' 
+                    : 'bg-dark-surface text-gray-400 border-gray-700 hover:text-white'
+                }`}
+            >
+                PEAK HOLD
+            </button>
+
+            {/* Weighting Selector */}
+            <div className="flex gap-2">
+            {['A', 'B', 'C', 'Z'].map((w) => (
+                <button
+                key={w}
+                onClick={() => setWeighting(w as WeightingType)}
+                className={`w-10 h-10 rounded font-bold border ${weighting === w ? 'bg-neon-blue text-black border-neon-blue' : 'bg-dark-surface border-gray-700 text-gray-400'}`}
+                >
+                {w}
+                </button>
+            ))}
+            </div>
         </div>
       </div>
 
@@ -308,7 +370,7 @@ const RTA: React.FC = () => {
             <li>Use <strong>C-Weighting</strong> for high volume / general response.</li>
             <li>Use <strong>A-Weighting</strong> for checking audible harshness or safety levels.</li>
             <li>Use <strong>Z-Weighting</strong> (Zero) for raw electrical measurement or sub-bass.</li>
-            <li>Aim for a "House Curve" (slightly elevated bass, gently rolling off highs) rather than perfectly flat.</li>
+            <li>Use <strong>Peak Hold</strong> to spot resonance issues or max volume spikes.</li>
          </ul>
       </div>
     </div>
